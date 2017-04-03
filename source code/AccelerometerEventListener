@@ -1,0 +1,238 @@
+package lab4_204_43.uwaterloo.ca.lab4_204_43;
+
+import android.graphics.Color;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.os.Build;
+import android.support.annotation.RequiresApi;
+import android.widget.RelativeLayout;
+import android.widget.TextView;
+
+import java.util.Timer;
+import java.util.TimerTask;
+
+/**
+ * Created by yanqing on 16/03/17.
+ */
+
+public class AccelerometerEventListener implements SensorEventListener{
+
+    // declare const variables
+    private final float FILTER_C = 8.0f;
+    private final int DEFAULTCOUNT = 30;
+
+    // declare internal variables
+    private TextView accView;
+    private GameLoopTask myGLT;
+
+    private boolean direction =true;
+    private int counter = DEFAULTCOUNT;
+    public static Timer Timer1;
+
+    // declare 6 states
+    enum  condition{WAIT, RISE_1, FALL_1, RISE_2, FALL_2, DETERMINED};
+    private condition curr_cond = condition.WAIT;   // set initial condition to WAIT
+
+    // declare signature
+    enum signature{signature_x, signature_y, signature_o}
+    private signature signature1 = signature.signature_o;
+
+    private float [][] historyReading = new float[100][3];  // declare dynamic array for historical readings
+    private final float[] acc_x_const ={0.5f, 2.0f, -0.4f}; // declare threshold acceleration for x-axis
+    private final float[] acc_y_const ={-0.5f, -2.0f, 0.4f};// declare threshold acceleration for y-axis
+
+    public AccelerometerEventListener(TextView data,GameLoopTask GL) {
+        accView = data;
+        this.myGLT = GL;
+    }
+
+    public void onAccuracyChanged(Sensor s, int i){ }
+
+    @RequiresApi(api = Build.VERSION_CODES.HONEYCOMB)
+    public void onSensorChanged(SensorEvent se) {
+
+        if(se.sensor.getType() ==Sensor.TYPE_LINEAR_ACCELERATION){
+            for(int n =1; n <100; n++){
+                historyReading[n -1][0] = historyReading[n][0];
+                historyReading[n -1][1] = historyReading[n][1];
+                historyReading[n -1][2] = historyReading[n][2];
+            }
+
+            historyReading[99][0] += (se.values[0]-historyReading[99][0])/FILTER_C;
+            historyReading[99][1] += (se.values[1]-historyReading[99][1])/FILTER_C;
+            historyReading[99][2] += (se.values[2]-historyReading[99][2])/FILTER_C;
+
+            FSM();  // call the FSM method
+
+            RelativeLayout.LayoutParams accTextPos = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT,
+                    RelativeLayout.LayoutParams.WRAP_CONTENT);
+            accTextPos.setMargins(400, 500, 0, 0);
+
+            if(counter <= 0) {
+                if(curr_cond == condition.DETERMINED) {
+                    if (signature1 == signature.signature_x) {
+                        if(direction) {
+                            accView.setText("RIGHT");
+                            accView.setTextSize(40.0f);
+                            accView.setTextColor(Color.GREEN);
+                            accView.setLayoutParams(accTextPos);
+                            myGLT.setDirection(GameLoopTask.gameDirection.RIGHT);
+                        }
+                        else{
+                            accView.setText("UP");
+                            myGLT.setDirection(GameLoopTask.gameDirection.UP);
+
+                        }
+                    }
+                    else if (signature1 == signature.signature_y) {
+                        if(direction){
+                            accView.setText("LEFT");
+                            myGLT.setDirection(GameLoopTask.gameDirection.LEFT);
+                        }
+                        else{
+                            accView.setText("DOWN");
+                            myGLT.setDirection(GameLoopTask.gameDirection.DOWN);
+                        }
+                    }
+                    else {
+                        accView.setText("UNDETERMINED");
+                        myGLT.setDirection(GameLoopTask.gameDirection.NO_MOVEMENT);
+                    }
+                }
+                else{
+                    curr_cond = condition.WAIT;
+                    accView.setText("UNDETERMINED");
+                    myGLT.setDirection(GameLoopTask.gameDirection.NO_MOVEMENT);
+                }
+                counter = DEFAULTCOUNT;
+
+                Timer1 = new Timer();
+                TimerTask Task1 = new TimerTask() {
+                    public void run() {
+                        curr_cond = condition.WAIT;
+                    }
+                };
+                Timer1.schedule(Task1,500);
+            }
+        }
+    }
+
+    public void FSM(){
+
+        float difference_x = historyReading[99][0] - historyReading[98][0];
+        float difference_y = historyReading[99][1] - historyReading[98][1];
+
+        // determine the current state
+        switch(curr_cond){
+            case WAIT:
+                counter = DEFAULTCOUNT;
+                accView.setText("");
+                signature1 = signature.signature_o;
+
+                if(difference_x > acc_x_const[0]){
+                    curr_cond = condition.RISE_1;
+                    direction = true;
+                }
+                else if(difference_x < acc_y_const[0]){
+                    curr_cond = condition.FALL_2;
+                    direction = true;
+                }
+                if(difference_y > acc_x_const[0]){
+                    curr_cond = condition.RISE_1;
+                    direction = false;
+                }
+                else if(difference_y < acc_y_const[0]){
+                    curr_cond = condition.FALL_2;
+                    direction = false;
+                }
+                break;
+            case RISE_1:
+                if(direction) {
+                    if (difference_x <= 0) {
+                        if (historyReading[99][0] >= acc_x_const[1]) {
+                            curr_cond = condition.FALL_1;
+                        } else {
+                            curr_cond = condition.DETERMINED;
+                        }
+                    }
+                }
+                else{
+                    if (difference_y <= 0) {
+                        if (historyReading[99][1] >= acc_x_const[1]) {
+                            curr_cond = condition.FALL_1;
+                        } else {
+                            curr_cond = condition.DETERMINED;
+                        }
+                    }
+                }
+                break;
+            case FALL_1:
+                if(direction) {
+                    if (difference_x >= 0) {
+                        if (historyReading[99][0] <= acc_x_const[2]) {
+                            signature1 = signature.signature_x;
+                        } else {
+                            curr_cond = condition.DETERMINED;
+                        }
+                    }
+                }
+                else{
+                    if (difference_y >= 0) {
+                        if (historyReading[99][1] <= acc_x_const[2]) {
+                            signature1 = signature.signature_x;
+                        } else {
+                            curr_cond = condition.DETERMINED;
+                        }
+                    }
+                }
+                break;
+            case FALL_2:
+                if(direction) {
+                    if (difference_x >= 0) {
+                        if (historyReading[99][0] <= acc_x_const[1]) {
+                            curr_cond = condition.RISE_2;
+                        } else {
+                            curr_cond = condition.DETERMINED;
+                        }
+                    }
+                }
+                else{
+                    if (difference_y >= 0) {
+                        if (historyReading[99][1] <= acc_x_const[1]) {
+                            curr_cond = condition.RISE_2;
+                        } else {
+                            curr_cond = condition.DETERMINED;
+                        }
+                    }
+                }
+                break;
+            case RISE_2:
+                if(direction) {
+                    if (difference_x <= 0) {
+                        if (historyReading[99][0] >= acc_y_const[2]) {
+                            signature1 = signature.signature_y;
+                        }else {
+                            curr_cond = condition.DETERMINED;
+                        }
+                    }
+                }
+                else{
+                    if (difference_y <= 0) {
+                        if (historyReading[99][1] >= acc_y_const[2]) {
+                            signature1 = signature.signature_y;
+                        }else {
+                            curr_cond = condition.DETERMINED;
+                        }
+                    }
+                }
+                break;
+            case DETERMINED:
+                break;
+            default:
+                curr_cond = condition.WAIT;
+                break;
+        }
+        counter--;
+    }
+}
